@@ -1,0 +1,6 @@
+name: PerfectNPC
+version: '${project.version}'
+main: com.thento.Main
+api-version: 1.19
+commands:
+  npc:
