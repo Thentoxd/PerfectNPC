@@ -3,6 +3,8 @@ package com.thento.instance.npc
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
+import io.netty.channel.ChannelDuplexHandler
+import io.netty.channel.ChannelHandlerContext
 import net.md_5.bungee.api.ChatColor
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.*
@@ -22,8 +24,36 @@ import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.sqrt
 
+interface PacketDuplexHandler {
+    fun onChannelRead(player: Player,rawPacket: Any?): Boolean {
+        return true
+    }
 
-class NPC(var player: Player, name: String, var location: Location) {
+    fun inject(player: Player) {
+        val handler = object : ChannelDuplexHandler() {
+            override fun channelRead(ctx: ChannelHandlerContext?, rawPacket: Any?) {
+                if(onChannelRead(player, rawPacket)) {
+                    super.channelRead(ctx, rawPacket)
+                    return
+                }
+            }
+        }
+
+        val pipeline = (player as CraftPlayer).handle.connection.getConnection().channel.pipeline()
+        uninject(player)
+        pipeline.addBefore("packet_handler", player.name, handler)
+    }
+
+    fun uninject(player: Player) {
+        val channel = (player as CraftPlayer).handle.connection.getConnection().channel
+        channel.eventLoop().submit {
+            channel.pipeline().remove(player.name)
+            return@submit
+        }
+    }
+}
+
+open class NPC(var player: Player, name: String, var location: Location): PacketDuplexHandler {
     private var npc: ServerPlayer? = null
     private var profile: GameProfile? = null
     private var skinProperty: Property? = null
@@ -43,6 +73,12 @@ class NPC(var player: Player, name: String, var location: Location) {
         this.sendPacket(ClientboundAddPlayerPacket(npc))
 
         teleport(location)
+    }
+
+    fun injectAll() {
+        for(player in Bukkit.getOnlinePlayers()) {
+            inject(player)
+        }
     }
 
     fun setSkin(value: String, signature: String) {
