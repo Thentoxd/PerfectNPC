@@ -58,8 +58,6 @@ open class NPC(var player: Player, name: String, var location: Location): Packet
     private var profile: GameProfile? = null
     private var skinProperty: Property? = null
 
-    var isGlowing: Boolean = false
-
     init {
         val serverPlayer: ServerPlayer = ((player as CraftPlayer).handle)
         val server: MinecraftServer = serverPlayer.server
