@@ -9,11 +9,13 @@ import net.minecraft.network.protocol.game.*
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.EquipmentSlot
 import org.bukkit.Bukkit
+import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.craftbukkit.v1_19_R1.CraftServer
 import org.bukkit.craftbukkit.v1_19_R1.entity.CraftPlayer
 import org.bukkit.craftbukkit.v1_19_R1.inventory.CraftItemStack
 import org.bukkit.entity.Player
+import org.bukkit.event.Event
 import org.bukkit.event.HandlerList
 import org.bukkit.event.player.PlayerEvent
 import org.bukkit.inventory.ItemStack
@@ -29,6 +31,8 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
     private var npc: ServerPlayer? = null
     private var profile: GameProfile? = null
     private var skinProperty: Property? = null
+    val gameMode = GameMode.CREATIVE
+    var ping = Ping.FIVE_BARS
     var hasSpawned = false
 
     init {
@@ -78,6 +82,12 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
         }
     }
 
+    fun updatePing(ping: Ping) {
+        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.UPDATE_LATENCY, npc))
+
+        this.ping = ping
+    }
+
     fun teleport(location: Location) {
         npc!!.setPos(location.x, location.y, location.z)
         update()
@@ -91,7 +101,13 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
         }
     }
 
-    fun lookAtPoint(location: Location) {
+    fun lookAtPoint(location: Location): Boolean {
+        if(location.world != this.location.world) {
+            Logger.log(this, Logger.LevelTypes.OutOfWorld.name)
+
+            return false
+        }
+
         val eyeLocation: Location = this.location
         var yaw = Math.toDegrees(Math.atan2(location.z - eyeLocation.z, location.x - eyeLocation.x)).toFloat() - 90
         yaw = (yaw + ceil((-yaw / 360).toDouble()) * 360).toFloat()
@@ -99,6 +115,8 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
         var pitch = Math.toDegrees(Math.atan2(deltaXZ.toDouble(), location.y - eyeLocation.y)).toFloat() - 90
         pitch = (pitch + ceil((-pitch / 360).toDouble()) * 360).toFloat()
         this.rotateHead(pitch, yaw)
+
+        return true
     }
 
     private fun rotateHead(pitch: Float, yaw: Float) {
@@ -132,25 +150,48 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
         sendPacket(ClientboundSetEquipmentPacket(getEntityID(), listOf(Pair(slot, CraftItemStack.asNMSCopy(item)))))
     }
 
-    private fun getEntityID(): Int { return npc!!.bukkitEntity.entityId }
+    fun getEntityID(): Int { return npc!!.bukkitEntity.entityId }
     fun getSkin(): Property { return skinProperty!! }
-    fun getSkinValue(): String { return getSkin().value }
-    fun getSkinSignature(): String { return getSkin().signature }
 }
 
 enum class Hand {
-    Hand,
+    MainHand,
     OffHand
 }
 
-class NPCInteractEvent(player: Player, var entityID: Int, var hand: Hand): PlayerEvent(player) {
-    private val HANDLERS = HandlerList()
 
+enum class Ping(val milliseconds: Int) {
+    NO_CONNECTION(-1),
+    ONE_BAR(1000),
+    TWO_BARS(999),
+    THREE_BARS(599),
+    FOUR_BARS(299),
+    FIVE_BARS(149)
+
+}
+
+object Logger {
+    fun log(npc: NPC, message: String) {
+        Bukkit.getConsoleSender().sendMessage("NPC ${npc.getEntityID()}: $message")
+    }
+
+    enum class LevelTypes {
+        OutOfWorld
+    }
+}
+
+class NPCInteractEvent(var player: Player, var entityID: Int, var hand: Hand): Event(false) {
     override fun getHandlers(): HandlerList {
         return HANDLERS
     }
 
-    fun getHandlerList(): HandlerList {
-        return HANDLERS
+    companion object {
+        private val HANDLERS = HandlerList()
+
+
+        @JvmStatic
+        fun getHandlerList(): HandlerList {
+            return HANDLERS
+        }
     }
 }
