@@ -1,82 +1,61 @@
-package com.thento.instance.npc
+package com.thento
 
+import com.google.gson.JsonParser
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
-import io.netty.channel.ChannelDuplexHandler
-import io.netty.channel.ChannelHandlerContext
-import net.md_5.bungee.api.ChatColor
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.*
-import net.minecraft.server.MinecraftServer
-import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.EquipmentSlot
 import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.craftbukkit.v1_19_R1.CraftServer
 import org.bukkit.craftbukkit.v1_19_R1.entity.CraftPlayer
 import org.bukkit.craftbukkit.v1_19_R1.inventory.CraftItemStack
 import org.bukkit.entity.Player
+import org.bukkit.event.HandlerList
+import org.bukkit.event.player.PlayerEvent
 import org.bukkit.inventory.ItemStack
-import org.bukkit.plugin.Plugin
+import java.io.InputStreamReader
+import java.net.URL
 import java.util.*
 import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-interface PacketDuplexHandler {
-    fun onChannelRead(player: Player,rawPacket: Any?): Boolean {
-        return true
-    }
 
-    fun inject(player: Player) {
-        val handler = object : ChannelDuplexHandler() {
-            override fun channelRead(ctx: ChannelHandlerContext?, rawPacket: Any?) {
-                if(onChannelRead(player, rawPacket)) {
-                    super.channelRead(ctx, rawPacket)
-                    return
-                }
-            }
-        }
-
-        val pipeline = (player as CraftPlayer).handle.connection.getConnection().channel.pipeline()
-        uninject(player)
-        pipeline.addBefore("packet_handler", player.name, handler)
-    }
-
-    fun uninject(player: Player) {
-        val channel = (player as CraftPlayer).handle.connection.getConnection().channel
-        channel.eventLoop().submit {
-            channel.pipeline().remove(player.name)
-            return@submit
-        }
-    }
-}
-
-open class NPC(var player: Player, name: String, var location: Location): PacketDuplexHandler {
+class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
     private var npc: ServerPlayer? = null
     private var profile: GameProfile? = null
     private var skinProperty: Property? = null
+    var hasSpawned = false
 
     init {
-        val serverPlayer: ServerPlayer = ((player as CraftPlayer).handle)
-        val server: MinecraftServer = serverPlayer.server
-        val level: ServerLevel = serverPlayer.getLevel()
-        val profile: GameProfile = GameProfile(UUID.randomUUID(), name)
-        this.profile = profile
-
-        val npc = ServerPlayer(server, level, profile, null)
-        this.npc = npc
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
-        this.sendPacket(ClientboundAddPlayerPacket(npc))
-
-        teleport(location)
+        if(shouldSpawn) {
+            spawn()
+        }
     }
 
-    fun injectAll() {
-        for(player in Bukkit.getOnlinePlayers()) {
-            inject(player)
+    fun spawn() {
+        if(!hasSpawned) {
+            val profile = GameProfile(UUID.randomUUID(), name)
+            this.profile = profile
+
+            val npc = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
+            this.npc = npc
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
+            this.sendPacket(ClientboundAddPlayerPacket(npc))
+
+            teleport(location)
+
+            hasSpawned = true
         }
+    }
+
+    fun deSpawn() {
+        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, npc))
+        hasSpawned = false
     }
 
     fun setSkin(value: String, signature: String) {
@@ -85,6 +64,12 @@ open class NPC(var player: Player, name: String, var location: Location): Packet
         this.skinProperty = property
 
         update()
+    }
+
+    fun setSkin(playerName: String) {
+        val textureProperty = JsonParser().parse(InputStreamReader(URL("https://api.mojang.com/users/profiles/minecraft/$playerName").openStream())).asJsonObject["properties"].asJsonArray[0].asJsonObject
+
+        setSkin(textureProperty["value"].asString, textureProperty["signature"].asString)
     }
 
     private fun sendPacket(packet: Packet<*>) {
@@ -99,9 +84,11 @@ open class NPC(var player: Player, name: String, var location: Location): Packet
     }
 
     private fun update() {
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, npc))
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
-        this.sendPacket(ClientboundAddPlayerPacket(npc))
+        if(hasSpawned) {
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, npc))
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
+            this.sendPacket(ClientboundAddPlayerPacket(npc))
+        }
     }
 
     fun lookAtPoint(location: Location) {
@@ -121,39 +108,16 @@ open class NPC(var player: Player, name: String, var location: Location): Packet
         sendPacket(ClientboundMoveEntityPacket.Rot(getEntityID(), ((yaw%360)*256/360).toInt().toByte(), ((pitch%360)*256/360).toInt().toByte(), false))
     }
 
+    fun talkTo(player: Player, message: String) {
+        player.sendMessage("${name}: $message")
+    }
+
     fun lookAtPlayer(player: Player) {
         lookAtPoint(player.location)
     }
 
     fun isInRange(location: Location, range: Int): Boolean {
-        if(this.location.distance(location) < range) {
-            return true
-        }
-
-        return false
-    }
-
-    object SkinTextures {
-
-        fun getByUsername(plugin: Plugin, name: String): Property {
-            return if(Bukkit.getPlayer(name) == null) {
-                val player = plugin.server.getOfflinePlayer(name)
-                val entityPlayer = (player as CraftPlayer).handle
-
-                entityPlayer.gameProfile.properties.get("textures").iterator().next()
-            } else {
-                getSkin(Bukkit.getPlayer(name)!!)!!
-            }
-        }
-
-        fun getSkin(player: Player): Property? {
-            try {
-                return (player as CraftPlayer).handle.gameProfile.properties.get("textures").iterator().next()
-            } catch (exception: NullPointerException) {
-                Bukkit.getConsoleSender().sendMessage("${ChatColor.RED}Couldn't set NPC")
-            }
-            return null
-        }
+        return this.location.distance(location) < range
     }
 
     fun walkTo(x: Double, y: Double, z: Double) {
@@ -172,4 +136,21 @@ open class NPC(var player: Player, name: String, var location: Location): Packet
     fun getSkin(): Property { return skinProperty!! }
     fun getSkinValue(): String { return getSkin().value }
     fun getSkinSignature(): String { return getSkin().signature }
+}
+
+enum class Hand {
+    Hand,
+    OffHand
+}
+
+class NPCInteractEvent(player: Player, var entityID: Int, var hand: Hand): PlayerEvent(player) {
+    private val HANDLERS = HandlerList()
+
+    override fun getHandlers(): HandlerList {
+        return HANDLERS
+    }
+
+    fun getHandlerList(): HandlerList {
+        return HANDLERS
+    }
 }
