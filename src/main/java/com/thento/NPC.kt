@@ -27,7 +27,7 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 
-class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
+class NPC(var name: String, var location: Location) {
     private var npc: ServerPlayer? = null
     private var profile: GameProfile? = null
     private var skinProperty: Property? = null
@@ -36,25 +36,24 @@ class NPC(var name: String, var location: Location, shouldSpawn: Boolean) {
     var hasSpawned = false
 
     init {
-        if(shouldSpawn) {
-            spawn()
-        }
+        this.profile = GameProfile(UUID.randomUUID(), name)
+        this.npc = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
     }
 
-    fun spawn() {
-        if(!hasSpawned) {
-            val profile = GameProfile(UUID.randomUUID(), name)
-            this.profile = profile
-
-            val npc = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
-            this.npc = npc
+    fun spawn(isViewable: Boolean): Boolean {
+        if(!hasSpawned && isViewable) {
             this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
             this.sendPacket(ClientboundAddPlayerPacket(npc))
 
             teleport(location)
-
             hasSpawned = true
+
+            return hasSpawned
+        } else {
+            update()
         }
+
+        return !(hasSpawned)
     }
 
     fun deSpawn() {
