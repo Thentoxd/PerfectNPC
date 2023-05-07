@@ -4,6 +4,7 @@ import com.google.gson.JsonParser
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
+import com.thento.testNPC.NPCPlugin
 import io.netty.channel.ChannelDuplexHandler
 import io.netty.channel.ChannelHandlerContext
 import net.minecraft.network.protocol.Packet
@@ -32,8 +33,13 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
 
     protected var profile: GameProfile = GameProfile(UUID.randomUUID(), name)
     protected var serverPlayer: ServerPlayer = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
-    var skinProperty: Property = profile.properties.get("textures").toMutableList()[0]
+    var skinProperty: Property? = null
     var hasSpawned: Boolean = false
+
+
+    init {
+        teleport(location)
+    }
 
     abstract fun onPlayerInteract(player: Player)
 
@@ -48,6 +54,14 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
 
         update()
         return !(hasSpawned)
+    }
+
+    fun setTab(value: Boolean) {
+        if(!value) {
+            sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, serverPlayer))
+        } else {
+            sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
+        }
     }
 
     fun remove() {
@@ -169,7 +183,7 @@ enum class Ping(val milliseconds: Int) {
     FIVE_BARS(149)
 }
 
-fun Player.addPacketListener() {
+fun Player.addPacketListener(plugin: NPCPlugin) {
     val handler = object : ChannelDuplexHandler() {
         override fun channelRead(ctx: ChannelHandlerContext?, rawPacket: Any?) {
             if(rawPacket is ServerboundInteractPacket) {
@@ -191,7 +205,7 @@ fun Player.addPacketListener() {
                 val id = rawPacket.javaClass.getDeclaredField("a")
                 id.isAccessible = true
 
-                searchForPlayerNPC(id.getInt(rawPacket))!!.onPlayerInteract(player!!)
+                searchForPlayerNPC(plugin, id.getInt(rawPacket))!!.onPlayerInteract(player!!)
             }
 
             super.channelRead(ctx, rawPacket)
@@ -202,7 +216,13 @@ fun Player.addPacketListener() {
     pipeline.addBefore("packet_handler", name, handler)
 }
 
-internal fun searchForPlayerNPC(entityID: Int): PlayerNPC? {
+internal fun searchForPlayerNPC(main: NPCPlugin, entityID: Int): PlayerNPC? {
+    for(npc in main.npcs) {
+        if(npc.getEntityID() == entityID) {
+            return npc
+        }
+    }
+
     return null
 }
 

@@ -2,6 +2,7 @@ package com.thento.testNPC
 
 import com.thento.Ping
 import com.thento.PlayerNPC
+import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.entity.Player
 
@@ -9,12 +10,14 @@ class MailMan(location: Location, ping: Ping): PlayerNPC("Mail Man", location, p
 
     init {
         skinProperty = setSkin(
-        "ewogICJ0aW1lc3RhbXAiIDogMTU5MDg3ODQ2NzUwNiwKICAicHJvZmlsZUlkIiA6ICJmZDYwZjM2ZjU4NjE0ZjEyYjNjZDQ3YzJkODU1Mjk5YSIsCiAgInByb2ZpbGVOYW1lIiA6ICJSZWFkIiwKICAic2lnbmF0dXJlUmVxdWlyZWQiIDogdHJ1ZSwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlL2VmNzAwMDI4ZWYxMzBmNWQzZTQ4MjNjYWNlZDY1OThlNGVlNzVkMDg2MmI2YWU0YjU3M2E3OGRjNjJmNjAxMDgiCiAgICB9CiAgfQp9",
-        "qCFeNJOB1QcX5GSRHWGEF6Dm0XXsP54QDydhbO/uCYQmN+w57hw/zFCKLITTV8GCydDzusrNBQ8veD+2hDHSdnczpzJueXzBw3RD7rGqGlcFhRhSBI0vPF8jGwJij+hzkrwt6ZChAlLzskHAp7dxqeBn/JPJ/FwPDuLbfvU175wcPPWLNil0Yw40irsQ/lbyaxGjC2I/U8P6j5tukRXnWYWcKUrRRlSdwGH+3rK+SbrhaX6MLv8RHgOmGCWBhvk4VYIAFET+K73EbjmKZjaJWPB9swp5QRFBGF4/kzLm/O8di3RH8nI+J0XtScLPU5obWhQa256I52flDCE8qzjnNoLfmGMYKOh6Uq9ZJBU4EOpxmnj7MZp3YHUb8+zJHcjRO7iog7mdMsaQUrc4xUyFMHAUurZcftc3xE23f9pszKxGcVySMFLUl3yPf8mNWHxm+qox4FFQXjexuijQsmeXn6vPh6LxtXeERIDgp2kskwai0j3uDIfQAUYneeybKvRIszKKpRv+EgIEF/kEhYAYWhuElD3Ynd00EQ1GIi6pfIq+c//V8HhzFz8RdHr5ZW1GGjQnAInxTKYRMuVf+5bdHo3omAb8wye1/tgrB6jaWfFrxA3E2LRRkvkjcFKolMw4dPCC37sgNvmCKBNUB9UyDfjCyZFRzTanCm/lXneF0ZI="
+            "ewogICJ0aW1lc3RhbXAiIDogMTY4MzQ2MDQxNzc2NCwKICAicHJvZmlsZUlkIiA6ICIxNmJhNWU4MDJhMmU0ZDJhYjEwZmZiYWJiYmQ1MDdlZSIsCiAgInByb2ZpbGVOYW1lIiA6ICJzbGlua3l1c2VyMzMxNSIsCiAgInNpZ25hdHVyZVJlcXVpcmVkIiA6IHRydWUsCiAgInRleHR1cmVzIiA6IHsKICAgICJTS0lOIiA6IHsKICAgICAgInVybCIgOiAiaHR0cDovL3RleHR1cmVzLm1pbmVjcmFmdC5uZXQvdGV4dHVyZS9kZGI1Y2ZjZDJlMmFiZDAwZDk2MTMyM2EwMzEyMjlkYmE4Y2MxNzZjMzNiOTM4N2U3NWNhNGJlODEzM2JiMDJiIgogICAgfQogIH0KfQ==",
+            "WNF7DEF+rl3ftIgz//WVOl383rWYVMUMg7C5tbMaZrZ0yAwp4yL4pHorX28MjrA5R2BHukvCQSvXo5SdbRZhdiIPMF32Kc5gKoZBRDsM7lRLzSM7JC9KiuBnZYe84uS2ywTcKW0rBvSAX11Xqj6Dx17hpy44RpB4gFAeMLyq3HvDhL6jt8EVj9lOCbmGiOn6b7KAT6FASV5asNTJ2NZ8/FV/oNuFXTigjXOpxvRAxpXf8DTSMyRJLLzzOhMzfrgUVcdr3RPIOnZ5DouOpu0fTnE37w0x2gejuKRrweJteXH7OVl9ewiqoSaVAogH64sKAD8nmVCJUgcAS58VTV+oUSgg5c7J86aX1DOftrnlbAf7tt+5XYUPxFt10fusNhL/NTZ5l/J3ac1eQFiZrfmxnQ0Cj7JPjjZlZAAZVytRzJRXitUFyv337wi/5zvaM6xTfb4zYLhUlUepLPE1t/lMGtby8DL6aTwr6n6sjlfuuVsqTq+KaJ5dfAEJpLMKHOb7xYOOf9a7SrD4Wg1Sk+729+4TZFxTIW6Bs5J5/6PqUh1u7rS4OhVdyg42lyPW1qp14vbtG6G8MrYTS4OvmGcikaVXXeeYufUge3RMqIobeZvbOqUz0q+BNeCIC7a/F0wi6Mb3HaxqP4TByaYbY59H7fqtN0DrtQpJgl85frbMtdo="
         )
+
+        skinProperty = setSkin("Thento")
     }
 
     override fun onPlayerInteract(player: Player) {
-        TODO()
+        player.sendMessage("Stop It Gay boy!")
     }
 }
