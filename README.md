@@ -7,7 +7,7 @@ How to Use
 -----
 Clone the npc [file](https://github.com/Thentoxd/PerfectNPC/blob/master/src/main/java/com/thento/instance/npc/NPC.kt) into your project and spawn them using:
 ```kotlin
-val npc = NPC(sender, "Billy Bob", sender.location)
+val npc = NPC(sender, "Billy Bob")
 ```
 And thats it! 🎉
 
@@ -32,20 +32,9 @@ Make the npc look at a point:
 ```kotlin
 npc.lookAtPoint(sender.location)
 ```
-Make the npc look at player:
-```kotlin
-npc.lookAtPlayer(sender)
-```
------
 
-Make the NPC always look at a player:
-```kotlin
-@EventHandler
-fun onMove(event: PlayerMoveEvent) {
-    this.npc!!.lookAtPlayer(event.player)
-}
-```
-Of course - this will make the npc look at every player in the server every time they move. You probably don't want that, so let's check if they're in a close range!
+Make the NPC look at a player in close range.
+
 ```kotlin
 @EventHandler
 fun onMove(event: PlayerMoveEvent) {
@@ -54,42 +43,7 @@ fun onMove(event: PlayerMoveEvent) {
     }
 }
 ```
-PacketDuplexHandler Reader
------
-Although the name is very difficult to understand. It's actually quite simple, this has been intergrated into the kotlin file, all it does it looks at *EVERY* packet sent to a player.
 
-We will now need to edit the code and change the NPC instance to an object:
-```kotlin
-val npc = object : NPC(sender, "Billy Bob", sender.location) {
-                    
-}
-```
-To listen for the packets, add this inside:
-```kotlin
-override fun onChannelRead(player: Player, rawPacket: Any?): Boolean {
-    return super.onChannelRead(player, rawPacket)
-}
-```
-You can now see all the packets that are being sent to the player
 
-But you need to add this outside the method, this tells the handler which player it's listening in for:
-```kotlin
-npc.inject(sender)
-```
-OR...
-Add everybody in the server instance to be listened:
-```kotlin
-npc.injectAll()
-```
-
-So your code should now look something like this:
-```kotlin
-val npc = object : NPC(sender, "Billy Bob", sender.location) {
-    override fun onChannelRead(player: Player, rawPacket: Any?): Boolean {
-        return super.onChannelRead(player, rawPacket)
-    }
-}
-npc.injectAll()
-```
 
 *I am working on giving the npc walking abilites. Any help needed, ask! 😄*
