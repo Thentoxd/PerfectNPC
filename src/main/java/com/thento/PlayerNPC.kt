@@ -4,6 +4,8 @@ import com.google.gson.JsonParser
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
+import io.netty.channel.ChannelDuplexHandler
+import io.netty.channel.ChannelHandlerContext
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.*
 import net.minecraft.server.level.ServerPlayer
@@ -11,38 +13,34 @@ import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.Pose
 import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.Server
 import org.bukkit.craftbukkit.v1_19_R1.CraftServer
 import org.bukkit.craftbukkit.v1_19_R1.entity.CraftPlayer
 import org.bukkit.craftbukkit.v1_19_R1.inventory.CraftItemStack
 import org.bukkit.entity.Player
-import org.bukkit.event.Event
-import org.bukkit.event.HandlerList
 import org.bukkit.inventory.ItemStack
 import java.io.InputStreamReader
 import java.net.URL
 import java.util.*
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.sqrt
 
 
-abstract class PlayerNPC(var name: String, var location: Location) {
+abstract class PlayerNPC(var name: String, var location: Location, var ping: Ping) {
+
     protected var profile: GameProfile = GameProfile(UUID.randomUUID(), name)
-    protected var npc: ServerPlayer = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
-    protected var skinProperty: Property? = null
-    var ping = Ping.FIVE_BARS
-    var hasSpawned = false
+    protected var serverPlayer: ServerPlayer = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
+    var skinProperty: Property = profile.properties.get("textures").toMutableList()[0]
+    var hasSpawned: Boolean = false
 
-    init {
-        teleport(location)
-    }
-
-    abstract fun onPlayerInteractPacket(player: Player)
+    abstract fun onPlayerInteract(player: Player)
 
     fun spawn(isViewable: Boolean): Boolean {
         if(!hasSpawned && isViewable) {
-            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
-            this.sendPacket(ClientboundAddPlayerPacket(npc))
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
+            this.sendPacket(ClientboundAddPlayerPacket(serverPlayer))
 
             hasSpawned = true
             return true
@@ -53,20 +51,22 @@ abstract class PlayerNPC(var name: String, var location: Location) {
     }
 
     fun remove() {
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, npc))
+        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, serverPlayer))
         hasSpawned = false
     }
 
-    fun setSkin(value: String, signature: String) {
+    fun setSkin(value: String, signature: String): Property {
         val property = Property("textures", value, signature)
         profile.properties.put("textures", property)
         this.skinProperty = property
 
         update()
+
+        return property
     }
 
-    fun setSkin(playerName: String) {
-        try {
+    fun setSkin(playerName: String): Property {
+        return try {
             val textureProperty = JsonParser().parse(InputStreamReader(
                 URL(
                     "https://sessionserver.mojang.com/session/minecraft/profile/${JsonParser().parse(InputStreamReader(URL("https://api.mojang.com/users/profiles/minecraft/$playerName").openStream())).asJsonObject["id"].asString}?unsigned=false"
@@ -74,7 +74,7 @@ abstract class PlayerNPC(var name: String, var location: Location) {
 
             setSkin(textureProperty["value"].asString, textureProperty["signature"].asString)
         } catch (exception: Exception) {
-            return
+            setSkin("", "")
         }
     }
 
@@ -85,21 +85,21 @@ abstract class PlayerNPC(var name: String, var location: Location) {
     }
 
     fun updatePing(ping: Ping) {
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.UPDATE_LATENCY, npc))
+        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.UPDATE_LATENCY, serverPlayer))
 
         this.ping = ping
     }
 
     fun teleport(location: Location) {
-        npc!!.setPos(location.x, location.y, location.z)
+        serverPlayer.setPos(location.x, location.y, location.z)
         update()
     }
 
     private fun update() {
         if(hasSpawned) {
-            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, npc))
-            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, npc))
-            this.sendPacket(ClientboundAddPlayerPacket(npc))
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.REMOVE_PLAYER, serverPlayer))
+            this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
+            this.sendPacket(ClientboundAddPlayerPacket(serverPlayer))
         }
     }
 
@@ -109,11 +109,11 @@ abstract class PlayerNPC(var name: String, var location: Location) {
         }
 
         val eyeLocation: Location = this.location
-        var yaw = Math.toDegrees(Math.atan2(location.z - eyeLocation.z, location.x - eyeLocation.x)).toFloat() - 90
+        var yaw = Math.toDegrees(atan2(location.z - eyeLocation.z, location.x - eyeLocation.x)).toFloat() - 90
         yaw = (yaw + ceil((-yaw / 360).toDouble()) * 360).toFloat()
-        val deltaXZ = sqrt(Math.pow(eyeLocation.x - location.x, 2.0) + (eyeLocation.z - location.z).pow(2.0)).toFloat()
-        var pitch = Math.toDegrees(Math.atan2(deltaXZ.toDouble(), location.y - eyeLocation.y)).toFloat() - 90
+        var pitch = Math.toDegrees(atan2(sqrt((eyeLocation.x - location.x).pow(2.0) + (eyeLocation.z - location.z).pow(2.0)), location.y - eyeLocation.y)).toFloat() - 90
         pitch = (pitch + ceil((-pitch / 360).toDouble()) * 360).toFloat()
+
         this.rotateHead(pitch, yaw)
 
         return true
@@ -122,7 +122,7 @@ abstract class PlayerNPC(var name: String, var location: Location) {
     private fun rotateHead(pitch: Float, yaw: Float) {
         this.location.pitch = pitch
         this.location.yaw = yaw
-        sendPacket(ClientboundRotateHeadPacket(npc, ((yaw%360)*256/360).toInt().toByte()))
+        sendPacket(ClientboundRotateHeadPacket(serverPlayer, ((yaw%360)*256/360).toInt().toByte()))
         sendPacket(ClientboundMoveEntityPacket.Rot(getEntityID(), ((yaw%360)*256/360).toInt().toByte(), ((pitch%360)*256/360).toInt().toByte(), false))
     }
 
@@ -147,11 +147,11 @@ abstract class PlayerNPC(var name: String, var location: Location) {
     }
 
     fun setPose(pose: Pose) {
-        npc.pose = pose
+        serverPlayer.pose = pose
         update()
     }
 
-    fun getEntityID(): Int { return npc.bukkitEntity.entityId }
+    fun getEntityID(): Int { return serverPlayer.bukkitEntity.entityId }
     fun getSkin(): Property { return skinProperty!! }
 }
 
@@ -167,21 +167,49 @@ enum class Ping(val milliseconds: Int) {
     THREE_BARS(599),
     FOUR_BARS(299),
     FIVE_BARS(149)
-
 }
 
-class NPCInteractEvent(var player: Player, var entityID: Int, var hand: Hand): Event(false) {
-    override fun getHandlers(): HandlerList {
-        return HANDLERS
+fun Player.addPacketListener() {
+    val handler = object : ChannelDuplexHandler() {
+        override fun channelRead(ctx: ChannelHandlerContext?, rawPacket: Any?) {
+            if(rawPacket is ServerboundInteractPacket) {
+                val type = rawPacket.javaClass.getDeclaredField("b")
+                type.isAccessible = true
+                val typeData = type.get(rawPacket)
+                if(typeData.toString().contains("${'$'}e")) return
+
+                try {
+                    val hand = typeData.javaClass.getDeclaredField("a")
+                    hand.isAccessible = true
+                    if(!hand.get(typeData).toString().equals("MAIN_HAND", ignoreCase = true)) {
+                        return
+                    }
+                } catch (_: NoSuchFieldException) {
+
+                }
+
+                val id = rawPacket.javaClass.getDeclaredField("a")
+                id.isAccessible = true
+
+                searchForPlayerNPC(id.getInt(rawPacket))!!.onPlayerInteract(player!!)
+            }
+
+            super.channelRead(ctx, rawPacket)
+        }
     }
 
-    companion object {
-        private val HANDLERS = HandlerList()
+    val pipeline = (this as CraftPlayer).handle.connection.getConnection().channel.pipeline()
+    pipeline.addBefore("packet_handler", name, handler)
+}
 
+internal fun searchForPlayerNPC(entityID: Int): PlayerNPC? {
+    return null
+}
 
-        @JvmStatic
-        fun getHandlerList(): HandlerList {
-            return HANDLERS
-        }
+fun Player.removePacketListener() {
+    val channel = (this as CraftPlayer).handle.connection.getConnection().channel
+    channel.eventLoop().submit {
+        channel.pipeline().remove(name)
+        return@submit
     }
 }
