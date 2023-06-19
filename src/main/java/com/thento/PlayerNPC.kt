@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
 import com.thento.testNPC.NPCPlugin
+import com.thento.testNPC.npcs
 import io.netty.channel.ChannelDuplexHandler
 import io.netty.channel.ChannelHandlerContext
 import net.minecraft.network.protocol.Packet
@@ -50,6 +51,8 @@ abstract class PlayerNPC(name: String, var location: Location) {
         if(!hasSpawned && isViewable) {
             this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
             this.sendPacket(ClientboundAddPlayerPacket(serverPlayer))
+
+            npcs.add(this)
 
             hasSpawned = true
             return true
@@ -232,7 +235,7 @@ fun Player.sendPacket(packet: Packet<*>) {
     (this as CraftPlayer).handle.connection.send(packet)
 }
 
-fun Player.addPacketListener(plugin: NPCPlugin) {
+fun Player.addPacketListener() {
     val handler = object : ChannelDuplexHandler() {
         override fun channelRead(ctx: ChannelHandlerContext?, rawPacket: Any?) {
             if(rawPacket is ServerboundInteractPacket) {
@@ -254,7 +257,7 @@ fun Player.addPacketListener(plugin: NPCPlugin) {
                 val id = rawPacket.javaClass.getDeclaredField("a")
                 id.isAccessible = true
 
-                searchForPlayerNPC(plugin, id.getInt(rawPacket))!!.onPlayerInteract(player!!)
+                searchForPlayerNPC(id.getInt(rawPacket))!!.onPlayerInteract(player!!)
             }
 
             super.channelRead(ctx, rawPacket)
@@ -265,8 +268,8 @@ fun Player.addPacketListener(plugin: NPCPlugin) {
     pipeline.addBefore("packet_handler", name, handler)
 }
 
-internal fun searchForPlayerNPC(main: NPCPlugin, entityID: Int): PlayerNPC? {
-    for(npc in main.npcs) {
+internal fun searchForPlayerNPC(entityID: Int): PlayerNPC? {
+    for(npc in npcs) {
         if(npc.getEntityID() == entityID) {
             return npc
         }

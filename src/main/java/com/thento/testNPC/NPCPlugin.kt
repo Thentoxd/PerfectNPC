@@ -15,10 +15,9 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.plugin.java.JavaPlugin
 
+internal val npcs: MutableList<PlayerNPC> = mutableListOf()
 
 class NPCPlugin : JavaPlugin(), CommandExecutor, Listener {
-    val npcs: MutableList<PlayerNPC> = mutableListOf()
-    val runnables: MutableList<Runnable> = mutableListOf()
 
     override fun onEnable() {
         Bukkit.getPluginManager().registerEvents(this, this)
@@ -29,8 +28,6 @@ class NPCPlugin : JavaPlugin(), CommandExecutor, Listener {
             if(command.name.equals("npc", ignoreCase = true)) {
                 val npc = MailMan(sender.location) // Test Custom NPC
                 npc.spawn(true)
-
-                npcs.add(npc)
             }
         }
         return false
@@ -38,7 +35,7 @@ class NPCPlugin : JavaPlugin(), CommandExecutor, Listener {
 
     @EventHandler
     fun npcPlayerJoin(event: PlayerJoinEvent) {
-        event.player.addPacketListener(this)
+        event.player.addPacketListener()
     }
 
     @EventHandler
