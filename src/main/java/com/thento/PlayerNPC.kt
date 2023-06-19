@@ -1,6 +1,5 @@
 package com.thento
 
-import com.google.gson.JsonParser
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
@@ -14,28 +13,32 @@ import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.Pose
 import org.bukkit.Bukkit
 import org.bukkit.Location
-import org.bukkit.Server
+import org.bukkit.Material
+import org.bukkit.OfflinePlayer
+import org.bukkit.block.Block
 import org.bukkit.craftbukkit.v1_19_R1.CraftServer
 import org.bukkit.craftbukkit.v1_19_R1.entity.CraftPlayer
 import org.bukkit.craftbukkit.v1_19_R1.inventory.CraftItemStack
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
-import java.io.InputStreamReader
+import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.scheduler.BukkitRunnable
+import org.bukkit.scheduler.BukkitTask
+import org.json.simple.JSONArray
+import org.json.simple.JSONObject
+import org.json.simple.parser.JSONParser
 import java.net.URL
+import java.net.URLConnection
 import java.util.*
-import kotlin.math.atan2
-import kotlin.math.ceil
-import kotlin.math.pow
-import kotlin.math.sqrt
+import kotlin.math.*
 
 
-abstract class PlayerNPC(var name: String, var location: Location, var ping: Ping) {
+abstract class PlayerNPC(name: String, var location: Location) {
 
     protected var profile: GameProfile = GameProfile(UUID.randomUUID(), name)
     protected var serverPlayer: ServerPlayer = ServerPlayer((Bukkit.getServer() as CraftServer).server, (Bukkit.getServer() as CraftServer).server.allLevels.toMutableList()[0], profile, null)
     var skinProperty: Property? = null
     var hasSpawned: Boolean = false
-
 
     init {
         teleport(location)
@@ -54,6 +57,42 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
 
         update()
         return !(hasSpawned)
+    }
+
+    fun spawn(player: Player) {
+        player.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
+        player.sendPacket(ClientboundAddPlayerPacket(serverPlayer))
+    }
+
+    fun walkTo(plugin: JavaPlugin, finishLocation: Location, octaves: Int): BukkitTask {
+        finishLocation.block.type = Material.REDSTONE_BLOCK
+        location.block.type = Material.EMERALD_BLOCK
+
+        val z1 = finishLocation.z - location.z / octaves
+        val x1 = finishLocation.x - location.x / octaves
+
+        return object : BukkitRunnable() {
+            override fun run() {
+                lookAtPoint(finishLocation)
+
+                location.add(x1, 0.0, z1)
+                moveRelative(x1, 0.0, z1)
+            }
+
+        }.runTaskTimer(plugin, 0, 40)
+    }
+
+    fun moveRelative(x: Double, y: Double, z: Double) {
+        sendPacket(ClientboundMoveEntityPacket.Pos(
+            serverPlayer.id,
+            (x * 4096).toInt().toShort(),
+            (y * 4096).toInt().toShort(),
+            (z * 4096).toInt().toShort(),
+            true))
+    }
+
+    fun moveRelative(x: Int, y: Int, z: Int) {
+        moveRelative((x.toDouble() + .5), y.toDouble(), (z.toDouble() + .5))
     }
 
     fun setTab(value: Boolean) {
@@ -79,29 +118,52 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
         return property
     }
 
-    fun setSkin(playerName: String): Property {
-        return try {
-            val textureProperty = JsonParser().parse(InputStreamReader(
-                URL(
-                    "https://sessionserver.mojang.com/session/minecraft/profile/${JsonParser().parse(InputStreamReader(URL("https://api.mojang.com/users/profiles/minecraft/$playerName").openStream())).asJsonObject["id"].asString}?unsigned=false"
-                ).openStream())).asJsonObject["properties"].asJsonArray[0].asJsonObject
+    fun setSkin(offlinePlayer: OfflinePlayer) {
+        val uuid = offlinePlayer.uniqueId
 
-            setSkin(textureProperty["value"].asString, textureProperty["signature"].asString)
-        } catch (exception: Exception) {
-            setSkin("", "")
+        val url = URL("https://sessionserver.mojang.com/session/minecraft/profile/$uuid?unsigned=false")
+        val uc: URLConnection = url.openConnection()
+        uc.useCaches = false
+        uc.defaultUseCaches = false
+
+        uc.addRequestProperty("User-Agent", "Mozilla/5.0")
+        uc.addRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+        uc.addRequestProperty("Pragma", "no-cache")
+
+        val json: String = Scanner(uc.getInputStream(), "UTF-8").useDelimiter("\\A").next()
+        val parser = JSONParser()
+        val obj: Any = parser.parse(json)
+        val properties = (obj as JSONObject)["properties"] as JSONArray
+
+        for (o in properties) {
+            try {
+                val property = o as JSONObject
+                val value = property["value"] as String
+                val signature = if (property.containsKey("signature")) property["signature"] as String? else null
+
+                if (signature != null) {
+                    setSkin(value, signature)
+                }
+            } catch (var12: Exception) {
+                var12.printStackTrace()
+            }
         }
+    }
+
+    fun setSkin(name: String) {
+        setSkin(Bukkit.getOfflinePlayer(name))
+    }
+
+    fun setSkin(player: Player) {
+        val properties = (player as CraftPlayer).profile.properties.get("textures").stream().findFirst().orElse(null)
+
+        setSkin(properties.value, properties.signature)
     }
 
     private fun sendPacket(packet: Packet<*>) {
         for(player in Bukkit.getOnlinePlayers()) {
             (player as CraftPlayer).handle.connection.send(packet)
         }
-    }
-
-    fun updatePing(ping: Ping) {
-        this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.UPDATE_LATENCY, serverPlayer))
-
-        this.ping = ping
     }
 
     fun teleport(location: Location) {
@@ -136,12 +198,9 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
     private fun rotateHead(pitch: Float, yaw: Float) {
         this.location.pitch = pitch
         this.location.yaw = yaw
+
         sendPacket(ClientboundRotateHeadPacket(serverPlayer, ((yaw%360)*256/360).toInt().toByte()))
         sendPacket(ClientboundMoveEntityPacket.Rot(getEntityID(), ((yaw%360)*256/360).toInt().toByte(), ((pitch%360)*256/360).toInt().toByte(), false))
-    }
-
-    fun talkTo(player: Player, message: String) {
-        player.sendMessage("${name}: $message")
     }
 
     fun lookAtPlayer(player: Player) {
@@ -169,18 +228,8 @@ abstract class PlayerNPC(var name: String, var location: Location, var ping: Pin
     fun getSkin(): Property { return skinProperty!! }
 }
 
-enum class Hand {
-    MainHand,
-    OffHand
-}
-
-enum class Ping(val milliseconds: Int) {
-    NO_CONNECTION(-1),
-    ONE_BAR(1000),
-    TWO_BARS(999),
-    THREE_BARS(599),
-    FOUR_BARS(299),
-    FIVE_BARS(149)
+fun Player.sendPacket(packet: Packet<*>) {
+    (this as CraftPlayer).handle.connection.send(packet)
 }
 
 fun Player.addPacketListener(plugin: NPCPlugin) {
