@@ -1,9 +1,11 @@
 package com.thento
 
+import com.google.gson.JsonParser
 import com.mojang.authlib.GameProfile
 import com.mojang.authlib.properties.Property
 import com.mojang.datafixers.util.Pair
 import com.thento.testNPC.NPCPlugin
+import com.thento.testNPC.getNPCS
 import com.thento.testNPC.npcs
 import io.netty.channel.ChannelDuplexHandler
 import io.netty.channel.ChannelHandlerContext
@@ -12,10 +14,8 @@ import net.minecraft.network.protocol.game.*
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.Pose
-import org.bukkit.Bukkit
-import org.bukkit.Location
-import org.bukkit.Material
-import org.bukkit.OfflinePlayer
+import net.minecraft.world.level.GameType
+import org.bukkit.*
 import org.bukkit.block.Block
 import org.bukkit.craftbukkit.v1_19_R1.CraftServer
 import org.bukkit.craftbukkit.v1_19_R1.entity.CraftPlayer
@@ -28,11 +28,16 @@ import org.bukkit.scheduler.BukkitTask
 import org.json.simple.JSONArray
 import org.json.simple.JSONObject
 import org.json.simple.parser.JSONParser
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.net.URL
 import java.net.URLConnection
 import java.util.*
 import kotlin.math.*
 
+internal fun GameMode.getNMSValue(): GameType {
+    return GameType.valueOf(this.name)
+}
 
 abstract class PlayerNPC(name: String, var location: Location) {
 
@@ -52,7 +57,7 @@ abstract class PlayerNPC(name: String, var location: Location) {
             this.sendPacket(ClientboundPlayerInfoPacket(ClientboundPlayerInfoPacket.Action.ADD_PLAYER, serverPlayer))
             this.sendPacket(ClientboundAddPlayerPacket(serverPlayer))
 
-            npcs.add(this)
+            Bukkit.getServer().getNPCS()[location.world!!] = this
 
             hasSpawned = true
             return true
@@ -60,6 +65,10 @@ abstract class PlayerNPC(name: String, var location: Location) {
 
         update()
         return !(hasSpawned)
+    }
+
+    fun setGameMode(gameMode: GameMode) {
+        val playerUpdate = ClientboundPlayerInfoPacket.PlayerUpdate(this.profile, 0, gameMode.getNMSValue(), null, null)
     }
 
     fun spawn(player: Player) {
@@ -122,33 +131,20 @@ abstract class PlayerNPC(name: String, var location: Location) {
     }
 
     fun setSkin(offlinePlayer: OfflinePlayer) {
-        val uuid = offlinePlayer.uniqueId
+        val sUrl = "https://sessionserver.mojang.com/session/minecraft/profile/${offlinePlayer.uniqueId}?unsigned=false"
 
-        val url = URL("https://sessionserver.mojang.com/session/minecraft/profile/$uuid?unsigned=false")
-        val uc: URLConnection = url.openConnection()
-        uc.useCaches = false
-        uc.defaultUseCaches = false
+        val req = URL(sUrl).openConnection()
+        req.connect()
 
-        uc.addRequestProperty("User-Agent", "Mozilla/5.0")
-        uc.addRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
-        uc.addRequestProperty("Pragma", "no-cache")
+        val reader = InputStreamReader(req.content as InputStream)
+        val json = JsonParser.parseReader(reader).asJsonObject
+        val array = json.get("properties").asJsonArray
 
-        val json: String = Scanner(uc.getInputStream(), "UTF-8").useDelimiter("\\A").next()
-        val parser = JSONParser()
-        val obj: Any = parser.parse(json)
-        val properties = (obj as JSONObject)["properties"] as JSONArray
-
-        for (o in properties) {
-            try {
-                val property = o as JSONObject
-                val value = property["value"] as String
-                val signature = if (property.containsKey("signature")) property["signature"] as String? else null
-
-                if (signature != null) {
-                    setSkin(value, signature)
-                }
-            } catch (var12: Exception) {
-                var12.printStackTrace()
+        for (element in array) {
+            val obj = element.asJsonObject
+            if (obj.get("name") != null && obj.get("name").asString == "textures") {
+                setSkin(obj.get("value").asString, obj.get("signature").asString)
+                break
             }
         }
     }
@@ -257,7 +253,7 @@ fun Player.addPacketListener() {
                 val id = rawPacket.javaClass.getDeclaredField("a")
                 id.isAccessible = true
 
-                searchForPlayerNPC(id.getInt(rawPacket))!!.onPlayerInteract(player!!)
+                searchForPlayerNPC(world, id.getInt(rawPacket))!!.onPlayerInteract(player!!)
             }
 
             super.channelRead(ctx, rawPacket)
@@ -268,8 +264,14 @@ fun Player.addPacketListener() {
     pipeline.addBefore("packet_handler", name, handler)
 }
 
-internal fun searchForPlayerNPC(entityID: Int): PlayerNPC? {
-    for(npc in npcs) {
+internal fun Player.spawnWorldNPCS() {
+    for(npc in Bukkit.getServer().getNPCS(world)) {
+        npc.spawn(this)
+    }
+}
+
+internal fun searchForPlayerNPC(world: World, entityID: Int): PlayerNPC? {
+    for(npc in Bukkit.getServer().getNPCS(world)) {
         if(npc.getEntityID() == entityID) {
             return npc
         }
