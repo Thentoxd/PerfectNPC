@@ -7,8 +7,16 @@ How to Use
 -----
 Clone the npc [file](https://github.com/Thentoxd/PerfectNPC/blob/master/src/main/java/com/thento/instance/npc/NPC.kt) into your project and spawn them using:
 ```kotlin
-val npc = NPC(sender, "Billy Bob")
+val npc = PlayerNPC(name, location)
 ```
+Or you can create your own custom npc and spawn it with it's own implementation
+
+```kotlin
+val npc = MailMan(location)
+```
+
+Example [here](https://github.com/Thentoxd/PerfectNPC/blob/master/src/main/java/com/thento/testNPC/MailMan.kt)
+
 And thats it! 🎉
 
 Tutorials:
